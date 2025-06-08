@@ -44,8 +44,13 @@ export default class MistralProvider extends BaseProvider {
       throw new Error(`Missing API key for ${this.name} provider`);
     }
 
+    // Codestral models use a different endpoint, so we need to set the baseURL accordingly.
+    const isCodestralModel = model.includes('codestral');
+    const baseURL = isCodestralModel ? 'https://codestral.mistral.ai/v1' : undefined;
+
     const mistral = createMistral({
       apiKey,
+      baseURL, 
     });
 
     return mistral(model);

@@ -1,76 +1,58 @@
-import { BaseProviderChecker } from '~/components/@settings/tabs/providers/service-status/base-provider';
-import type { StatusCheckResult } from '~/components/@settings/tabs/providers/service-status/types';
+import { BaseProvider } from '~/lib/modules/llm/base-provider';
+import type { ModelInfo } from '~/lib/modules/llm/types';
+import type { IProviderSetting } from '~/types/model';
+import type { LanguageModelV1 } from 'ai';
+import { createMistral } from '@ai-sdk/mistral';
 
-export class MistralStatusChecker extends BaseProviderChecker {
-  async checkStatus(): Promise<StatusCheckResult> {
-    try {
-      // Check status page
-      const statusPageResponse = await fetch('https://status.mistral.ai/');
-      const text = await statusPageResponse.text();
+export default class MistralProvider extends BaseProvider {
+  name = 'Mistral';
+  getApiKeyLink = 'https://console.mistral.ai/api-keys/';
 
-      const isOperational = text.includes('All Systems Operational');
-      const hasIncidents = text.includes('Active Incidents');
-      const hasDegradation = text.includes('Degraded Performance');
-      const hasOutage = text.includes('Service Outage');
+  config = {
+    apiTokenKey: 'MISTRAL_API_KEY',
+  };
 
-      // Extract incidents
-      const incidents: string[] = [];
-      const incidentSection = text.match(/Recent Events(.*?)(?=\n\n)/s);
+  staticModels: ModelInfo[] = [
+    { name: 'open-mistral-7b', label: 'Mistral 7B', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'open-mixtral-8x7b', label: 'Mistral 8x7B', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'open-mixtral-8x22b', label: 'Mistral 8x22B', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'open-codestral-mamba', label: 'Codestral Mamba', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'open-mistral-nemo', label: 'Mistral Nemo', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'ministral-8b-latest', label: 'Mistral 8B', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'mistral-small-latest', label: 'Mistral Small', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'codestral-latest', label: 'Codestral', provider: 'Mistral', maxTokenAllowed: 8000 },
+    { name: 'mistral-large-latest', label: 'Mistral Large Latest', provider: 'Mistral', maxTokenAllowed: 8000 },
+  ];
 
-      if (incidentSection) {
-        const incidentLines = incidentSection[1]
-          .split('\n')
-          .map((line) => line.trim())
-          .filter((line) => line && !line.includes('No incidents'));
+  getModelInstance(options: {
+    model: string;
+    serverEnv: Env;
+    apiKeys?: Record<string, string>;
+    providerSettings?: Record<string, IProviderSetting>;
+  }): LanguageModelV1 {
+    const { model, serverEnv, apiKeys, providerSettings } = options;
 
-        incidents.push(...incidentLines.slice(0, 5));
-      }
+    const { apiKey } = this.getProviderBaseUrlAndKey({
+      apiKeys,
+      providerSettings: providerSettings?.[this.name],
+      serverEnv: serverEnv as any,
+      defaultBaseUrlKey: '',
+      defaultApiTokenKey: 'MISTRAL_API_KEY',
+    });
 
-      let status: StatusCheckResult['status'] = 'operational';
-      let message = 'All systems operational';
-
-      if (hasOutage) {
-        status = 'down';
-        message = 'Service outage detected';
-      } else if (hasDegradation || hasIncidents) {
-        status = 'degraded';
-        message = 'Service experiencing issues';
-      } else if (!isOperational) {
-        status = 'degraded';
-        message = 'Service status unknown';
-      }
-
-      // If status page check fails, fallback to endpoint check
-      if (!statusPageResponse.ok) {
-        const endpointStatus = await this.checkEndpoint('https://status.mistral.ai/');
-        const apiEndpoint = 'https://api.mistral.ai/v1/models';
-        const apiStatus = await this.checkEndpoint(apiEndpoint);
-
-        return {
-          status: endpointStatus === 'reachable' && apiStatus === 'reachable' ? 'operational' : 'degraded',
-          message: `Status page: ${endpointStatus}, API: ${apiStatus}`,
-          incidents: ['Note: Limited status information due to CORS restrictions'],
-        };
-      }
-
-      return {
-        status,
-        message,
-        incidents,
-      };
-    } catch (error) {
-      console.error('Error checking Mistral status:', error);
-
-      // Fallback to basic endpoint check
-      const endpointStatus = await this.checkEndpoint('https://status.mistral.ai/');
-      const apiEndpoint = 'https://api.mistral.ai/v1/models';
-      const apiStatus = await this.checkEndpoint(apiEndpoint);
-
-      return {
-        status: endpointStatus === 'reachable' && apiStatus === 'reachable' ? 'operational' : 'degraded',
-        message: `Status page: ${endpointStatus}, API: ${apiStatus}`,
-        incidents: ['Note: Limited status information due to CORS restrictions'],
-      };
+    if (!apiKey) {
+      throw new Error(`Missing API key for ${this.name} provider`);
     }
+
+    // Codestral models use a different endpoint, so we need to set the baseURL accordingly.
+    const isCodestralModel = model.includes('codestral');
+    const baseURL = isCodestralModel ? 'https://codestral.mistral.ai/v1' : undefined;
+
+    const mistral = createMistral({
+      apiKey,
+      baseURL, // Use the specific URL for Codestral models
+    });
+
+    return mistral(model);
   }
 }
