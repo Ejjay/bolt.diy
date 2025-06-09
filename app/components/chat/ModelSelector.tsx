@@ -1,30 +1,29 @@
-import { useEffect, useState, useRef, useMemo, type KeyboardEvent, memo } from 'react';
-import type { ModelInfo } from '~/lib/modules/llm/types';
-import { classNames } from '~/utils/classNames';
-import { TabsWithSlider } from '~/components/ui/TabsWithSlider';
-import { Label } from '~/components/ui/Label';
+import { memo, useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
 import { settingsStore } from '~/lib/stores/settings';
+import { TabsWithSlider } from '~/components/ui/TabsWithSlider';
+import { Label } from '~/components/ui/Label';
+import { classNames } from '~/utils/classNames';
+import type { ModelInfo } from '~/lib/modules/llm/types';
 import type { IProviderConfig, IProviderSetting } from '~/types/model';
 
-// --- Interface for component props ---
+// --- PROPS INTERFACE ---
+// The props are simplified. The component now gets its data from the global store.
 interface ModelSelectorProps {
-  // isLoading is passed from the parent to disable controls during submission
   isLoading: boolean;
-  // This callback notifies the parent component about the mode change
   onChatModeChange: (mode: 'discuss' | 'build' | 'patch') => void;
-  // This callback is used to fetch models for a provider when it's selected
+  // We need a way to tell the parent to fetch models when a provider is selected.
   onFetchModels: (provider: IProviderConfig) => void;
 }
 
 export const ModelSelector = memo(({ isLoading, onChatModeChange, onFetchModels }: ModelSelectorProps) => {
-  // --- State from Global Store ---
-  // The component now gets all its data directly from the settingsStore.
-  // This makes it the single source of truth.
+  // --- GLOBAL STATE ---
+  // The component now relies *only* on the settingsStore for its data.
+  // This removes all conflicts with props and local state.
   const { providers, models, selectedProvider, selectedModel, providerSettings } = useStore(settingsStore);
 
-  // --- Local UI State ---
-  // This state is only for controlling the UI (dropdowns, search, etc.)
+  // --- LOCAL UI STATE ---
+  // This state is only for managing the dropdown's appearance.
   const [chatMode, setChatMode] = useState<'discuss' | 'build' | 'patch'>('build');
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -33,36 +32,25 @@ export const ModelSelector = memo(({ isLoading, onChatModeChange, onFetchModels 
   const providerDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
-  // --- Memoized Lists ---
-  // Filters the providers and models based on the search query.
-  const filteredProviders = useMemo(() => 
-    providers.filter((p) => p.name.toLowerCase().includes(providerSearchQuery.toLowerCase())),
-    [providers, providerSearchQuery]
-  );
-
-  const currentModels = useMemo(() => 
-    (models[selectedProvider?.name || ''] || []).filter(
-      (m: ModelInfo) =>
-        m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
-        m.name.toLowerCase().includes(modelSearchQuery.toLowerCase())
-    ),
-    [models, selectedProvider, modelSearchQuery]
-  );
-  
-  // --- Event Handlers to Update Global State ---
-  // These handlers now update the global settingsStore directly.
+  // --- EVENT HANDLERS ---
+  // These functions now correctly update the global settingsStore.
   const handleProviderSelect = (provider: IProviderConfig) => {
-    // Update the store with the new provider and its default model
+    // 1. Update the global store
     settingsStore.setKey('selectedProvider', provider);
     settingsStore.setKey('selectedModel', provider.defaultModel || provider.models?.[0]?.name || '');
+
+    // 2. Close the dropdown
     setIsProviderDropdownOpen(false);
     setProviderSearchQuery('');
-    // Fetch models for the newly selected provider
+
+    // 3. Trigger the parent to fetch the models for this provider
     onFetchModels(provider);
   };
 
   const handleModelSelect = (modelName: string) => {
+    // 1. Update the global store
     settingsStore.setKey('selectedModel', modelName);
+    // 2. Close the dropdown
     setIsModelDropdownOpen(false);
     setModelSearchQuery('');
   };
@@ -70,15 +58,31 @@ export const ModelSelector = memo(({ isLoading, onChatModeChange, onFetchModels 
   const handleChatModeChange = (mode: string) => {
     const newMode = mode as 'discuss' | 'build' | 'patch';
     setChatMode(newMode);
-    onChatModeChange(newMode); // Notify parent component
+    onChatModeChange(newMode);
   };
-
+  
+  // --- DERIVED DATA & HELPERS ---
   const isProviderConfigured = (providerName: string) => {
     const settings = providerSettings[providerName] as IProviderSetting;
     return settings?.settings?.apiKey || settings?.settings?.isConfigured || !settings.isConfigurable;
   };
+  
+  const filteredProviders = useMemo(() => {
+    return providers.filter((p) => p.name.toLowerCase().includes(providerSearchQuery.toLowerCase()));
+  }, [providers, providerSearchQuery]);
 
-  // --- Effect for closing dropdowns on outside click ---
+  const currentModels = useMemo(() => {
+    const providerName = selectedProvider?.name || '';
+    const modelsForProvider = models[providerName] || [];
+    return modelsForProvider.filter(
+      (m: ModelInfo) =>
+        m.label.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+        m.name.toLowerCase().includes(modelSearchQuery.toLowerCase())
+    );
+  }, [models, selectedProvider, modelSearchQuery]);
+
+  // --- EFFECTS ---
+  // Effect to close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (providerDropdownRef.current && !providerDropdownRef.current.contains(event.target as Node)) {
@@ -91,21 +95,12 @@ export const ModelSelector = memo(({ isLoading, onChatModeChange, onFetchModels 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  
-  // --- Render Logic ---
+
   const chatModeTabs = [
     { id: 'build', label: 'Build' },
     { id: 'patch', label: 'Patch' },
     { id: 'discuss', label: 'Discuss' },
   ];
-  
-  if (providers.length === 0) {
-    return (
-      <div className="mb-2 p-4 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-prompt-background text-bolt-elements-textPrimary">
-        <p className="text-center">No providers enabled. Please configure providers in settings.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="flex items-center justify-between p-2 rounded-t-lg bg-bolt-background-dark text-xs text-white/50">
@@ -114,12 +109,12 @@ export const ModelSelector = memo(({ isLoading, onChatModeChange, onFetchModels 
         <div ref={providerDropdownRef} className="relative">
           <Label className="text-white/50">Provider</Label>
           <button
-            onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
+            onClick={() => setIsProviderDropdownOpen(p => !p)}
             disabled={isLoading}
-            className="flex items-center justify-between w-32 p-1.5 rounded-md bg-bolt-background text-white/80"
+            className="flex items-center justify-between w-36 p-1.5 rounded-md bg-bolt-background text-white/80 border border-transparent focus-within:border-bolt-elements-focus"
           >
             <span className="truncate">{selectedProvider?.name || 'Select'}</span>
-            <span className="i-ph:caret-down w-4 h-4" />
+            <span className={classNames('i-ph:caret-down w-4 h-4 transition-transform', isProviderDropdownOpen && 'rotate-180')} />
           </button>
           {isProviderDropdownOpen && (
             <div className="absolute z-20 w-48 mt-1 p-1 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg">
@@ -127,17 +122,18 @@ export const ModelSelector = memo(({ isLoading, onChatModeChange, onFetchModels 
                 type="text"
                 value={providerSearchQuery}
                 onChange={(e) => setProviderSearchQuery(e.target.value)}
-                placeholder="Search..."
+                placeholder="Search providers..."
+                autoFocus
                 className="w-full px-2 py-1 mb-1 rounded-md bg-bolt-background-dark border border-bolt-elements-borderColor focus:outline-none focus:ring-1 focus:ring-bolt-elements-focus"
               />
               <div className="max-h-60 overflow-y-auto">
                 {filteredProviders.map((p) => (
                   <div
                     key={p.name}
-                    onClick={() => handleProviderSelect(p)}
+                    onClick={() => isProviderConfigured(p.name) && handleProviderSelect(p)}
                     className={classNames(
-                      'px-2 py-1.5 text-sm rounded cursor-pointer hover:bg-bolt-elements-background-depth-3',
-                      !isProviderConfigured(p.name) && 'opacity-50 cursor-not-allowed',
+                      'px-2 py-1.5 text-sm rounded',
+                      isProviderConfigured(p.name) ? 'cursor-pointer hover:bg-bolt-elements-background-depth-3' : 'opacity-50 cursor-not-allowed',
                       selectedProvider?.name === p.name && 'bg-bolt-elements-background-depth-3'
                     )}
                   >
@@ -153,20 +149,21 @@ export const ModelSelector = memo(({ isLoading, onChatModeChange, onFetchModels 
         <div ref={modelDropdownRef} className="relative">
           <Label className="text-white/50">Model</Label>
           <button
-            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+            onClick={() => setIsModelDropdownOpen(p => !p)}
             disabled={isLoading || !selectedProvider}
-            className="flex items-center justify-between w-48 p-1.5 rounded-md bg-bolt-background text-white/80"
+            className="flex items-center justify-between w-48 p-1.5 rounded-md bg-bolt-background text-white/80 border border-transparent focus-within:border-bolt-elements-focus"
           >
-            <span className="truncate">{selectedModel || 'Select'}</span>
-            <span className="i-ph:caret-down w-4 h-4" />
+            <span className="truncate">{selectedModel || 'Select a provider'}</span>
+            <span className={classNames('i-ph:caret-down w-4 h-4 transition-transform', isModelDropdownOpen && 'rotate-180')} />
           </button>
           {isModelDropdownOpen && (
             <div className="absolute z-20 w-60 mt-1 p-1 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg">
-              <input
+               <input
                 type="text"
                 value={modelSearchQuery}
                 onChange={(e) => setModelSearchQuery(e.target.value)}
-                placeholder="Search..."
+                placeholder="Search models..."
+                autoFocus
                 className="w-full px-2 py-1 mb-1 rounded-md bg-bolt-background-dark border border-bolt-elements-borderColor focus:outline-none focus:ring-1 focus:ring-bolt-elements-focus"
               />
               <div className="max-h-60 overflow-y-auto">
