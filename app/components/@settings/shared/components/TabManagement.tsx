@@ -3,12 +3,13 @@ import { motion } from 'framer-motion';
 import { useStore } from '@nanostores/react';
 import { Switch } from '~/components/ui/Switch';
 import { classNames } from '~/utils/classNames';
-import { tabConfigurationStore } from '~/lib/stores/settings';
+// START: Import `useSettingsPanelStore` which is the corrected name
+import { tabConfigurationStore, useSettingsPanelStore } from '~/lib/stores/settings';
+// END: Import `useSettingsPanelStore`
 import { TAB_LABELS } from '~/components/@settings/core/constants';
 import type { TabType } from '~/components/@settings/core/types';
 import { toast } from 'react-toastify';
 import { TbLayoutGrid } from 'react-icons/tb';
-import { useSettingsStore } from '~/lib/stores/settings';
 
 // Define tab icons mapping
 const TAB_ICONS: Record<TabType, string> = {
@@ -56,7 +57,10 @@ const BetaLabel = () => (
 export const TabManagement = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const tabConfiguration = useStore(tabConfigurationStore);
-  const { setSelectedTab } = useSettingsStore();
+  
+  // START: Use the corrected store name `useSettingsPanelStore`
+  const { setSelectedTab } = useSettingsPanelStore();
+  // END: Use the corrected store name
 
   const handleTabVisibilityChange = (tabId: TabType, checked: boolean) => {
     // Get current tab configuration
