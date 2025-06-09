@@ -24,6 +24,52 @@ export interface StreamingOptions extends Omit<Parameters<typeof _streamText>[0]
   };
 }
 
+// =================================================================
+// START: New System Prompt for "Patch Mode"
+// =================================================================
+
+/**
+ * Creates a specialized system prompt for "Patch Mode".
+ * This prompt instructs the AI to output changes in the unified diff format.
+ */
+function getPatchPrompt(options: { modificationTagName: string; cwd: string }): string {
+  return `You are an expert AI programmer specializing in code modification. Your task is to act as an automated code editing tool.
+You will be given a user request and the content of relevant files.
+Your SOLE an ONLY output format MUST be a unified diff format, contained within a specific XML-like tag.
+
+You MUST follow these rules:
+1.  Analyze the user's request to understand the required changes.
+2.  Analyze the provided file content within the 'CONTEXT BUFFER'.
+3.  Generate a set of changes in the unified diff format.
+4.  Wrap the entire response in a <${options.modificationTagName}> tag.
+5.  Inside this tag, each file modification must be wrapped in a <diff path="path/to/file"> tag.
+6.  The content inside the <diff> tag must be a valid unified diff, starting with '@@ ... @@'.
+7.  DO NOT include the '---' or '+++' file headers in the diff content. The patch application system will handle this.
+8.  DO NOT output any conversational text, explanations, or code blocks. Your response must ONLY be the diff itself.
+
+Here is an example of a PERFECT response:
+
+<${options.modificationTagName}>
+<diff path="src/components/ui/Button.tsx">
+@@ -10,7 +10,7 @@
+   return (
+     <button
+       className={cn(buttonVariants({ variant, size, className }))}
+-      ref={ref}
++      ref={ref} // Add a reference to the button
+       {...props}
+     />
+   );
+</diff>
+</${options.modificationTagName}>
+
+Begin! The user's files are located in the '${options.cwd}' directory.`;
+}
+
+// =================================================================
+// END: New System Prompt for "Patch Mode"
+// =================================================================
+
 const logger = createScopedLogger('stream-text');
 
 export async function streamText(props: {
@@ -38,7 +84,9 @@ export async function streamText(props: {
   contextFiles?: FileMap;
   summary?: string;
   messageSliceId?: number;
-  chatMode?: 'discuss' | 'build';
+  // START: Updated chatMode type to include 'patch'
+  chatMode?: 'discuss' | 'build' | 'patch';
+  // END: Updated chatMode type
   designScheme?: DesignScheme;
 }) {
   const {
@@ -69,13 +117,11 @@ export async function streamText(props: {
       content = content.replace(/<div class=\\"__boltThought__\\">.*?<\/div>/s, '');
       content = content.replace(/<think>.*?<\/think>/s, '');
 
-      // Remove package-lock.json content specifically keeping token usage MUCH lower
       content = content.replace(
         /<boltAction type="file" filePath="package-lock\.json">[\s\S]*?<\/boltAction>/g,
         '[package-lock.json content removed]',
       );
 
-      // Trim whitespace potentially left after removals
       content = content.trim();
 
       return { ...message, content };
@@ -105,7 +151,6 @@ export async function streamText(props: {
     modelDetails = modelsList.find((m) => m.name === currentModel);
 
     if (!modelDetails) {
-      // Fallback to first model
       logger.warn(
         `MODEL [${currentModel}] not found in provider [${provider.name}]. Falling back to first model. ${modelsList[0].name}`,
       );
@@ -113,50 +158,55 @@ export async function streamText(props: {
     }
   }
 
-  const dynamicMaxTokens = modelDetails && modelDetails.maxTokenAllowed ? modelDetails.maxTokenAllowed : MAX_TOKENS;
+  const dynamicMaxTokens = modelDetails?.maxTokenAllowed || MAX_TOKENS;
   logger.info(
     `Max tokens for model ${modelDetails.name} is ${dynamicMaxTokens} based on ${modelDetails.maxTokenAllowed} or ${MAX_TOKENS}`,
   );
 
-  let systemPrompt =
-    PromptLibrary.getPropmtFromLibrary(promptId || 'default', {
-      cwd: WORK_DIR,
-      allowedHtmlElements: allowedHTMLElements,
-      modificationTagName: MODIFICATIONS_TAG_NAME,
-      designScheme,
-      supabase: {
-        isConnected: options?.supabaseConnection?.isConnected || false,
-        hasSelectedProject: options?.supabaseConnection?.hasSelectedProject || false,
-        credentials: options?.supabaseConnection?.credentials || undefined,
-      },
-    }) ?? getSystemPrompt();
+  // START: Logic to select the system prompt based on chatMode
+  let systemPrompt: string;
 
-  if (chatMode === 'build' && contextFiles && contextOptimization) {
+  switch (chatMode) {
+    case 'patch':
+      systemPrompt = getPatchPrompt({
+        modificationTagName: MODIFICATIONS_TAG_NAME,
+        cwd: WORK_DIR,
+      });
+      break;
+    case 'discuss':
+      systemPrompt = discussPrompt();
+      break;
+    case 'build':
+    default:
+      systemPrompt =
+        PromptLibrary.getPropmtFromLibrary(promptId || 'default', {
+          cwd: WORK_DIR,
+          allowedHtmlElements: allowedHTMLElements,
+          modificationTagName: MODIFICATIONS_TAG_NAME,
+          designScheme,
+          supabase: {
+            isConnected: options?.supabaseConnection?.isConnected || false,
+            hasSelectedProject: options?.supabaseConnection?.hasSelectedProject || false,
+            credentials: options?.supabaseConnection?.credentials || undefined,
+          },
+        }) ?? getSystemPrompt();
+      break;
+  }
+  // END: Logic to select the system prompt
+
+  // The context buffer is still useful for all modes that need file context
+  if ((chatMode === 'build' || chatMode === 'patch') && contextFiles && contextOptimization) {
     const codeContext = createFilesContext(contextFiles, true);
 
-    systemPrompt = `${systemPrompt}
-
-    Below is the artifact containing the context loaded into context buffer for you to have knowledge of and might need changes to fullfill current user request.
-    CONTEXT BUFFER:
-    ---
-    ${codeContext}
-    ---
-    `;
+    systemPrompt = `${systemPrompt}\n\nBelow is the artifact containing the context loaded into context buffer for you to have knowledge of and might need changes to fullfill current user request.\nCONTEXT BUFFER:\n---\n${codeContext}\n---`;
 
     if (summary) {
-      systemPrompt = `${systemPrompt}
-      below is the chat history till now
-      CHAT SUMMARY:
-      ---
-      ${props.summary}
-      ---
-      `;
+      systemPrompt = `${systemPrompt}\n\n_below is the chat history till now_\nCHAT SUMMARY:\n---\n${props.summary}\n---`;
 
       if (props.messageSliceId) {
         processedMessages = processedMessages.slice(props.messageSliceId);
       } else {
         const lastMessage = processedMessages.pop();
-
         if (lastMessage) {
           processedMessages = [lastMessage];
         }
@@ -178,19 +228,12 @@ export async function streamText(props: {
     const lockedFilesListString = Array.from(effectiveLockedFilePaths)
       .map((filePath) => `- ${filePath}`)
       .join('\n');
-    systemPrompt = `${systemPrompt}
-
-    IMPORTANT: The following files are locked and MUST NOT be modified in any way. Do not suggest or make any changes to these files. You can proceed with the request but DO NOT make any changes to these files specifically:
-    ${lockedFilesListString}
-    ---
-    `;
+    systemPrompt = `${systemPrompt}\n\nIMPORTANT: The following files are locked and MUST NOT be modified in any way. Do not suggest or make any changes to these files. You can proceed with the request but DO NOT make any changes to these files specifically:\n${lockedFilesListString}\n---`;
   } else {
     console.log('No locked files found from any source for prompt.');
   }
 
   logger.info(`Sending llm call to ${provider.name} with model ${modelDetails.name}`);
-
-  // console.log(systemPrompt, processedMessages);
 
   return await _streamText({
     model: provider.getModelInstance({
@@ -199,7 +242,7 @@ export async function streamText(props: {
       apiKeys,
       providerSettings,
     }),
-    system: chatMode === 'build' ? systemPrompt : discussPrompt(),
+    system: systemPrompt, // Use the dynamically selected system prompt
     maxTokens: dynamicMaxTokens,
     messages: convertToCoreMessages(processedMessages as any),
     ...options,

@@ -38,12 +38,13 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 }
 
 async function chatAction({ context, request }: ActionFunctionArgs) {
+  // START: Updated chatMode type in the request body
   const { messages, files, promptId, contextOptimization, supabase, chatMode, designScheme } = await request.json<{
     messages: Messages;
     files: any;
     promptId?: string;
     contextOptimization: boolean;
-    chatMode: 'discuss' | 'build';
+    chatMode: 'discuss' | 'build' | 'patch'; // Added 'patch'
     designScheme?: DesignScheme;
     supabase?: {
       isConnected: boolean;
@@ -54,6 +55,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       };
     };
   }>();
+  // END: Updated chatMode type
 
   const cookieHeader = request.headers.get('Cookie');
   const apiKeys = JSON.parse(parseCookies(cookieHeader || '').apiKeys || '{}');
@@ -98,7 +100,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             message: 'Analysing Request',
           } satisfies ProgressAnnotation);
 
-          // Create a summary of the chat
           console.log(`Messages count: ${messages.length}`);
 
           summary = await createSummary({
@@ -131,7 +132,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             chatId: messages.slice(-1)?.[0]?.id,
           } as ContextAnnotation);
 
-          // Update context buffer
           logger.debug('Updating Context Buffer');
           dataStream.writeData({
             type: 'progress',
@@ -141,7 +141,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             message: 'Determining Files to Read',
           } satisfies ProgressAnnotation);
 
-          // Select context files
           console.log(`Messages count: ${messages.length}`);
           filteredFiles = await selectContext({
             messages: [...messages],
@@ -186,8 +185,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             order: progressCounter++,
             message: 'Code Files Selected',
           } satisfies ProgressAnnotation);
-
-          // logger.debug('Code Files Selected');
         }
 
         const options: StreamingOptions = {
@@ -220,7 +217,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               } satisfies ProgressAnnotation);
               await new Promise((resolve) => setTimeout(resolve, 0));
 
-              // stream.close();
               return;
             }
 
@@ -342,7 +338,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             transformedChunk = `0:${content}\n`;
           }
 
-          // Convert the string stream to a byte stream
           const str = typeof transformedChunk === 'string' ? transformedChunk : JSON.stringify(transformedChunk);
           controller.enqueue(encoder.encode(str));
         },

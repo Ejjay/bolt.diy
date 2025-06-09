@@ -1,8 +1,14 @@
 import type { ProviderInfo } from '~/types/model';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { ModelInfo } from '~/lib/modules/llm/types';
 import { classNames } from '~/utils/classNames';
+import { Dropdown } from '~/components/ui/Dropdown';
+import { TabsWithSlider } from '~/components/ui/TabsWithSlider';
+import { Label } from '~/components/ui/Label';
+import { useStore } from '@nanostores/react';
+import { settingsStore } from '~/lib/stores/settings';
+import type { IProvider, IProviderSetting } from '~/types/model';
 
 interface ModelSelectorProps {
   model?: string;
@@ -13,6 +19,9 @@ interface ModelSelectorProps {
   providerList: ProviderInfo[];
   apiKeys: Record<string, string>;
   modelLoading?: string;
+  onModelChange: (provider: IProvider, model: string) => void;
+  onChatModeChange: (mode: 'discuss' | 'build' | 'patch') => void;
+  isLoading: boolean;
 }
 
 export const ModelSelector = ({
@@ -23,7 +32,20 @@ export const ModelSelector = ({
   modelList,
   providerList,
   modelLoading,
+  onModelChange,
+  onChatModeChange,
+  isLoading,
 }: ModelSelectorProps) => {
+  const { providers, models, selectedModel, selectedProvider } = useStore(settingsStore);
+
+  // State for chatMode and tabs configuration
+  const [chatMode, setChatMode] = useState<'discuss' | 'build' | 'patch'>('build');
+  const chatModeTabs = [
+    { id: 'build', label: 'Build' },
+    { id: 'patch', label: 'Patch' },
+    { id: 'discuss', label: 'Discuss' },
+  ];
+
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [focusedModelIndex, setFocusedModelIndex] = useState(-1);
@@ -203,6 +225,38 @@ export const ModelSelector = ({
       }
     }
   }, [providerList, provider, setProvider, modelList, setModel]);
+
+  const handleProviderChange = (providerName: string) => {
+    const provider = providers.find((p) => p.name === providerName);
+    if (provider) {
+      const defaultModel = provider.defaultModel || provider.models?.[0] || 'default';
+      onModelChange(provider, defaultModel);
+    }
+  };
+
+  const handleModelChange = (modelName: string) => {
+    const provider = providers.find((p) => p.name === selectedProvider?.name);
+    if (provider) {
+      onModelChange(provider, modelName);
+    }
+  };
+
+  // Handler for the new TabsWithSlider component
+  const handleChatModeChange = (mode: string) => {
+    const newMode = mode as 'discuss' | 'build' | 'patch';
+    setChatMode(newMode);
+    onChatModeChange(newMode);
+  };
+
+  const currentModels = useMemo(() => {
+    return models[selectedProvider?.name as keyof typeof models] || [];
+  }, [models, selectedProvider]);
+
+  const providerSettings = useStore(settingsStore.providerSettings);
+  const isConfigured = (providerName: string) => {
+    const settings = providerSettings[providerName] as IProviderSetting;
+    return settings?.apiKey || settings?.isConfigured;
+  };
 
   if (providerList.length === 0) {
     return (
@@ -461,6 +515,12 @@ export const ModelSelector = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* Chat Mode Selector */}
+      <div className="flex items-center gap-2">
+        <Label className="mb-0 text-white/50">Chat Mode</Label>
+        <TabsWithSlider tabs={chatModeTabs} activeTab={chatMode} onTabClick={handleChatModeChange} size="sm" disabled={isLoading} />
       </div>
     </div>
   );
