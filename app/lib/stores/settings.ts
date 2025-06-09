@@ -132,8 +132,6 @@ const getInitialSettings = () => {
 
 const initialSettings = getInitialSettings();
 
-// --- START: THIS IS THE CRITICAL FIX ---
-// This creates and exports the `settingsStore` that was missing.
 interface SettingsState {
   providers: IProviderConfig[];
   models: Record<string, any[]>;
@@ -160,7 +158,6 @@ settingsStore.listen((currentValue) => {
         }
     }
 });
-// --- END: CRITICAL FIX ---
 
 export const latestBranchStore = atom<boolean>(initialSettings.latestBranch);
 export const autoSelectStarterTemplate = atom<boolean>(initialSettings.autoSelectTemplate);
@@ -220,6 +217,18 @@ export const updateTabConfiguration = (config: TabVisibilityConfig) => {
   tabConfigurationStore.set(newConfig);
   localStorage.setItem(SETTINGS_KEYS.TAB_CONFIGURATION, JSON.stringify(newConfig));
 };
+
+// --- START: THE FINAL FIX ---
+// This function was accidentally removed and is now restored.
+export const resetTabConfiguration = () => {
+  const defaultConfig: TabWindowConfig = {
+    userTabs: DEFAULT_TAB_CONFIG.filter((tab): tab is UserTabConfig => tab.window === 'user'),
+    developerTabs: DEFAULT_TAB_CONFIG.filter((tab): tab is DevTabConfig => tab.window === 'developer'),
+  };
+  tabConfigurationStore.set(defaultConfig);
+  localStorage.setItem(SETTINGS_KEYS.TAB_CONFIGURATION, JSON.stringify(defaultConfig));
+};
+// --- END: THE FINAL FIX ---
 
 export const developerModeStore = atom<boolean>(initialSettings.developerMode);
 export const setDeveloperMode = (value: boolean) => {
