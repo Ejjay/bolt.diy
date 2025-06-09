@@ -7,7 +7,7 @@ import { Dropdown } from '~/components/ui/Dropdown';
 import { TabsWithSlider } from '~/components/ui/TabsWithSlider';
 import { Label } from '~/components/ui/Label';
 import { useStore } from '@nanostores/react';
-import { settingsStore } from '~/lib/stores/settings';
+import { settingsStore } from '~/lib/stores/settings'; // Ensure this is correctly exported in your settings.ts
 import type { IProvider, IProviderSetting } from '~/types/model';
 
 interface ModelSelectorProps {
@@ -36,7 +36,7 @@ export const ModelSelector = ({
   onChatModeChange,
   isLoading,
 }: ModelSelectorProps) => {
-  const { providers, models, selectedModel, selectedProvider } = useStore(settingsStore);
+  const { providers, models, selectedModel, selectedProvider, providerSettings } = useStore(settingsStore);
 
   // State for chatMode and tabs configuration
   const [chatMode, setChatMode] = useState<'discuss' | 'build' | 'patch'>('build');
@@ -252,7 +252,6 @@ export const ModelSelector = ({
     return models[selectedProvider?.name as keyof typeof models] || [];
   }, [models, selectedProvider]);
 
-  const providerSettings = useStore(settingsStore.providerSettings);
   const isConfigured = (providerName: string) => {
     const settings = providerSettings[providerName] as IProviderSetting;
     return settings?.apiKey || settings?.isConfigured;
